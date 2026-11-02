@@ -26,4 +26,3 @@ interaction = client.interactions.create(
 print(interaction.steps[-1])
 
 
-
