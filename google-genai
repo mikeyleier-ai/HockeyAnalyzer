@@ -1,15 +1,2 @@
-import os
-from google import genai
-import streamlit as st
-
-st.title("Hockey Analyzer")
-
-# Retrieve the key from Streamlit secrets
-api_key = st.secrets.get("GEMINI_API_KEY")
-
-if api_key:
-    # Option 1: Pass key directly to the client
-    client = genai.Client(api_key=api_key)
-    st.success("Gemini API Key configured successfully!")
-else:
-    st.error("GEMINI_API_KEY is missing. Please add it to your Streamlit Secrets.")
+streamlit
+google-genai
