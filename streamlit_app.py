@@ -3,14 +3,12 @@ from google import genai
 
 st.title("Hockey Analyzer")
 
-# Initialize Gemini Client directly using Streamlit Secrets
+# Safely check if the API key is present in Secrets
 if "GEMINI_API_KEY" in st.secrets:
     try:
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
-        st.success("App loaded and ready!")
+        st.success("Gemini API Key connected successfully!")
     except Exception as e:
-        st.error(f"Error initializing Gemini: {e}")
+        st.error(f"Error connecting to Gemini: {e}")
 else:
-    st.error("GEMINI_API_KEY missing in Secrets.")
-
-# --- Put your main Hockey Analyzer app features below this line ---
+    st.error("Missing GEMINI_API_KEY in Streamlit Secrets.")
