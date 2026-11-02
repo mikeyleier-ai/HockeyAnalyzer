@@ -7,25 +7,21 @@ from google.genai import types
 st.set_page_config(page_title="Hockey Analyzer", page_icon="🏒")
 st.title("🏒 Hockey Analyzer")
 
-# 1. SETUP & AUTHENTICATION
-if "GEMINI_API_KEY" in st.secrets:
-    try:
-        client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
-        st.success("App connected to Gemini successfully!")
-    except Exception as e:
-        st.error(f"Error initializing Gemini client: {e}")
-        st.stop()
-else:
-    st.error("GEMINI_API_KEY missing in Streamlit Secrets.")
+# 1. READ THE SECRET KEY
+api_key = st.secrets.get("GEMINI_API_KEY")
+
+if not api_key:
+    st.error("Missing GEMINI_API_KEY in Streamlit Secrets!")
     st.stop()
 
-# ---------------------------------------------------------
-# 2. INPUT SELECTION (File Upload or YouTube Link)
-# ---------------------------------------------------------
+# Build the Gemini Client using the key
+client = genai.Client(api_key=api_key)
+st.success("App connected to Gemini successfully!")
 
+# 2. INPUT SELECTION
 user_prompt = st.text_area(
     "Analysis Query / Prompt:", 
-    "Analyze the play, player positioning, puck movement, and team strategy in this video."
+    "Analyze the play, player positioning, and team strategy in this clip."
 )
 
 tab1, tab2 = st.tabs(["📹 Upload Video File", "🔗 YouTube Link"])
@@ -40,51 +36,41 @@ with tab1:
         video_type = "file"
 
 with tab2:
-    youtube_url = st.text_input(
-        "Paste Public YouTube URL:", 
-        placeholder="https://www.youtube.com/watch?v=..."
-    )
+    youtube_url = st.text_input("Paste Public YouTube URL:", placeholder="https://www.youtube.com/watch?v=...")
     if youtube_url.strip():
         video_type = "youtube"
 
-# ---------------------------------------------------------
-# 3. ANALYSIS EXECUTION
-# ---------------------------------------------------------
-
+# 3. RUN ANALYSIS
 if st.button("Run Hockey Analysis"):
     if not video_type:
-        st.warning("Please upload a video file or enter a valid YouTube URL first.")
+        st.warning("Please upload a video file or enter a YouTube link first.")
     else:
-        with st.spinner("Processing video with Gemini..."):
+        with st.spinner("Analyzing with Gemini..."):
             tmp_path = None
             try:
                 contents = []
 
                 if video_type == "file":
-                    # Save stream to temporary file on disk
+                    # Save video to a temporary file for processing
                     file_ext = uploaded_file.name.split(".")[-1]
                     with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_ext}") as tmp_file:
                         tmp_file.write(uploaded_file.getvalue())
                         tmp_path = tmp_file.name
 
-                    # Upload temporary file to Gemini Files API
                     uploaded_temp = client.files.upload(file=tmp_path)
                     contents.append(uploaded_temp)
-                
+
                 elif video_type == "youtube":
-                    # Standard structure for YouTube URL inputs
+                    # Send YouTube URL directly to Gemini
                     contents.append(
-                        types.Part(
-                            file_data=types.FileData(
-                                file_uri=youtube_url.strip()
-                            )
+                        types.Part.from_uri(
+                            file_uri=youtube_url.strip(),
+                            mime_type="video/*"
                         )
                     )
 
-                # Append prompt text
                 contents.append(user_prompt)
 
-                # Call model
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=contents
@@ -94,9 +80,8 @@ if st.button("Run Hockey Analysis"):
                 st.write(response.text)
 
             except Exception as e:
-                st.error(f"Error running video analysis: {e}")
-            
+                st.error(f"Error: {e}")
+
             finally:
-                # Clean up local temporary file if it was created
                 if tmp_path and os.path.exists(tmp_path):
                     os.remove(tmp_path)
