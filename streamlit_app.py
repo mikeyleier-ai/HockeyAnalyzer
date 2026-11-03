@@ -1,3 +1,5 @@
+import os
+import tempfile
 import cv2
 import streamlit as st
 import yt_dlp
@@ -5,36 +7,30 @@ import yt_dlp
 st.set_page_config(page_title="AI Hockey Analyzer", page_icon="🏒", layout="wide")
 
 
-def get_direct_stream_url(url: str) -> str:
-    """Extracts a direct stream URL from YouTube without requiring specific extensions."""
-    # Clean up /live/ URLs and strip tracking parameters (e.g. ?si=...)
+def download_youtube_video(url: str) -> str:
+    """Downloads YouTube video or live replay directly to a temporary MP4 file."""
+    # Convert /live/ links to standard watch links & strip tracking parameters
     if "/live/" in url:
         video_id = url.split("/live/")[1].split("?")[0]
         url = f"https://www.youtube.com/watch?v={video_id}"
-    elif "?" in url:
-        # Strip query parameters that can interfere with extraction
-        url = url.split("?")[0] if "watch" not in url else url
+    elif "?" in url and "watch" not in url:
+        url = url.split("?")[0]
+
+    temp_dir = tempfile.gettempdir()
+    out_template = os.path.join(temp_dir, "%(id)s.%(ext)s")
 
     ydl_opts = {
-        # Fall back gracefully across video+audio formats, direct streams, or single files
-        "format": "bestvideo+bestaudio/best",
+        # Select single pre-merged format so ffmpeg is not required for merging
+        "format": "best",
+        "outtmpl": out_template,
         "quiet": True,
         "no_warnings": True,
         "live_from_start": True,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        
-        # Extract direct stream URL (handles playability & formats automatically)
-        if "url" in info:
-            return info["url"]
-        elif "requested_formats" in info:
-            return info["requested_formats"][0]["url"]
-        elif "formats" in info and len(info["formats"]) > 0:
-            return info["formats"][-1]["url"]
-            
-        return None
+        info = ydl.extract_info(url, download=True)
+        return ydl.prepare_filename(info)
 
 
 # UI Layout
@@ -50,45 +46,42 @@ if st.button("Analyze YouTube Stream Directly"):
     if not youtube_url.strip():
         st.error("Please enter a valid YouTube URL.")
     else:
-        with st.spinner("Connecting to stream..."):
+        with st.spinner("Downloading video for processing..."):
             try:
-                # 1. Extract direct video stream URL
-                stream_url = get_direct_stream_url(youtube_url)
+                # 1. Download video to temporary local file
+                video_path = download_youtube_video(youtube_url)
 
-                if not stream_url:
-                    st.error("Could not extract a stream URL from this video.")
+                # 2. Open local file in OpenCV
+                cap = cv2.VideoCapture(video_path)
+
+                if not cap.isOpened():
+                    st.error("Error reading video file with OpenCV.")
                 else:
-                    # 2. Connect directly to OpenCV
-                    cap = cv2.VideoCapture(stream_url)
+                    st.success("Video loaded successfully! Analyzing frames...")
 
-                    if not cap.isOpened():
-                        st.error("OpenCV could not open the stream. Ensure 'opencv-python-headless' is in requirements.txt.")
-                    else:
-                        st.success("Connected to stream! Analyzing frames...")
+                    frame_placeholder = st.empty()
+                    stop_button = st.button("Stop Analysis")
 
-                        frame_placeholder = st.empty()
-                        stop_button = st.button("Stop Analysis")
+                    # 3. Read and render frames
+                    while cap.isOpened() and not stop_button:
+                        ret, frame = cap.read()
+                        if not ret:
+                            break
 
-                        # 3. Read and render frames live
-                        while cap.isOpened() and not stop_button:
-                            ret, frame = cap.read()
-                            if not ret:
-                                break
+                        # --- YOUR AI MODEL INFERENCE HERE ---
+                        # Example: frame = your_model.predict(frame)
 
-                            # --- YOUR AI MODEL INFERENCE HERE ---
-                            # Example: frame = your_model.predict(frame)
+                        # Convert OpenCV BGR format to RGB for Streamlit displaying
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-                            # Convert BGR (OpenCV) to RGB (Streamlit)
-                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        frame_placeholder.image(
+                            frame_rgb,
+                            channels="RGB",
+                            use_container_width=True,
+                        )
 
-                            frame_placeholder.image(
-                                frame_rgb,
-                                channels="RGB",
-                                use_container_width=True,
-                            )
-
-                        cap.release()
-                        st.info("Analysis stopped or stream ended.")
+                    cap.release()
+                    st.info("Analysis stopped or video ended.")
 
             except Exception as e:
-                st.error(f"Failed to process YouTube stream: {str(e)}")
+                st.error(f"Failed to process YouTube video: {str(e)}")
