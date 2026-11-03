@@ -1,45 +1,81 @@
+import os
+import tempfile
 import streamlit as st
 import yt_dlp
-import os
 
+st.set_page_config(page_title="AI Hockey Analyzer", page_icon="🏒", layout="wide")
+
+def download_youtube_video(url: str) -> str:
+    """
+    Downloads a YouTube video/livestream replay to a temporary MP4 file.
+    Returns the path to the downloaded video file.
+    """
+    # Normalize /live/ URLs to standard watch URLs for better compatibility
+    if "/live/" in url:
+        video_id = url.split("/live/")[1].split("?")[0]
+        url = f"https://www.youtube.com/watch?v={video_id}"
+
+    # Setup temporary directory and output path template
+    temp_dir = tempfile.gettempdir()
+    out_template = os.path.join(temp_dir, "%(id)s.%(ext)s")
+
+    ydl_opts = {
+        # Format selection with broad fallbacks to ensure compatibility with live replays
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "outtmpl": out_template,
+        "merge_output_format": "mp4",
+        "quiet": True,
+        "no_warnings": True,
+        # Helps process live streams or newly finished streams properly
+        "live_from_start": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = ydl.prepare_filename(info)
+        
+        # Ensure output is treated as mp4 if merged
+        base, _ = os.path.splitext(filename)
+        mp4_filename = f"{base}.mp4"
+        
+        if os.path.exists(mp4_filename):
+            return mp4_filename
+        return filename
+
+
+# UI Layout
 st.title("🏒 AI Hockey Analyzer")
 
-# Create tabs or a radio selection for input type
-input_type = st.radio("Select Video Input:", ["Upload Video", "YouTube Video"], horizontal=True)
+input_option = st.radio("Select Video Input:", ["Upload Video", "YouTube Video"], horizontal=True)
 
-if input_type == "YouTube Video":
+video_path = None
+
+if input_option == "YouTube Video":
     youtube_url = st.text_input("Enter YouTube Video URL:", placeholder="https://www.youtube.com/watch?v=...")
     
     if st.button("Analyze YouTube Video"):
-        if youtube_url.strip():
-            st.info("Downloading YouTube video...")
-            
-            # Configure yt-dlp options
-            ydl_opts = {
-                'format': 'best[ext=mp4]/best',  # Download best quality mp4
-                'outtmpl': 'downloaded_video.mp4',  # Save filename
-                'overwrites': True,
-            }
-            
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([youtube_url])
-                
-                st.success("Video downloaded successfully!")
-                
-                # Display the downloaded video in Streamlit
-                st.video("downloaded_video.mp4")
-                
-                # --- Insert your AI analysis function here ---
-                # analyze_video("downloaded_video.mp4")
-                
-            except Exception as e:
-                st.error(f"Failed to download video: {e}")
+        if not youtube_url.strip():
+            st.error("Please enter a valid YouTube URL.")
         else:
-            st.warning("Please enter a valid YouTube URL.")
+            with st.spinner("Downloading YouTube video..."):
+                try:
+                    video_path = download_youtube_video(youtube_url)
+                    st.success("Download complete!")
+                except Exception as e:
+                    st.error(f"Failed to download video: {str(e)}")
 
-elif input_type == "Upload Video":
-    uploaded_file = st.file_uploader("Choose a video file", type=["mp4", "mov", "avi"])
-    if uploaded_file is not None:
-        st.video(uploaded_file)
-        # --- Insert your AI analysis function here ---
+elif input_option == "Upload Video":
+    uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "mov", "avi"])
+    if uploaded_file:
+        temp_dir = tempfile.gettempdir()
+        video_path = os.path.join(temp_dir, uploaded_file.name)
+        with open(video_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+
+# Video Processing Step
+if video_path and os.path.exists(video_path):
+    st.video(video_path)
+    
+    # Place your OpenCV / Computer Vision Model inference pipeline here
+    # Example:
+    # process_hockey_video(video_path)
