@@ -6,44 +6,27 @@ import yt_dlp
 st.set_page_config(page_title="AI Hockey Analyzer", page_icon="🏒", layout="wide")
 
 def download_youtube_video(url: str) -> str:
-    """
-    Downloads a YouTube video/livestream replay to a temporary MP4 file.
-    Returns the path to the downloaded video file.
-    """
-    # Normalize /live/ URLs to standard watch URLs for better compatibility
+    # Handle /live/ URLs
     if "/live/" in url:
         video_id = url.split("/live/")[1].split("?")[0]
         url = f"https://www.youtube.com/watch?v={video_id}"
 
-    # Setup temporary directory and output path template
     temp_dir = tempfile.gettempdir()
     out_template = os.path.join(temp_dir, "%(id)s.%(ext)s")
 
     ydl_opts = {
-        # Format selection with broad fallbacks to ensure compatibility with live replays
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        # Select single pre-merged format so ffmpeg is not required
+        "format": "best",
         "outtmpl": out_template,
-        "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
-        # Helps process live streams or newly finished streams properly
         "live_from_start": True,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info)
-        
-        # Ensure output is treated as mp4 if merged
-        base, _ = os.path.splitext(filename)
-        mp4_filename = f"{base}.mp4"
-        
-        if os.path.exists(mp4_filename):
-            return mp4_filename
-        return filename
+        return ydl.prepare_filename(info)
 
-
-# UI Layout
 st.title("🏒 AI Hockey Analyzer")
 
 input_option = st.radio("Select Video Input:", ["Upload Video", "YouTube Video"], horizontal=True)
@@ -72,10 +55,5 @@ elif input_option == "Upload Video":
         with open(video_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
 
-# Video Processing Step
 if video_path and os.path.exists(video_path):
     st.video(video_path)
-    
-    # Place your OpenCV / Computer Vision Model inference pipeline here
-    # Example:
-    # process_hockey_video(video_path)
