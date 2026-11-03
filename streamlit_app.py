@@ -1,83 +1,115 @@
 import os
 import cv2
-import yt_dlp
 import tempfile
+import yt_dlp
 import streamlit as st
 import google.generativeai as genai
-
 from PIL import Image
 
-# ------------------------------------------
-# PAGE SETUP
-# ------------------------------------------
+# --------------------------------------------------
+# PAGE CONFIG
+# --------------------------------------------------
 
 st.set_page_config(
-    page_title="🏒 Hockey Analyzer",
+    page_title="🏒 Hockey AI Analyzer",
     page_icon="🏒",
     layout="wide"
 )
 
-st.title("🏒 AI Hockey Analyzer")
+st.title("🏒 Hockey AI Analyzer")
 
-# ------------------------------------------
-# GEMINI
-# ------------------------------------------
+st.markdown(
+    """
+Upload a hockey clip or paste a YouTube link.
 
-api_key = st.secrets.get("GEMINI_API_KEY")
+The AI will analyze:
 
-if not api_key:
-    st.error("Missing GEMINI_API_KEY")
-    st.stop()
-
-genai.configure(api_key=api_key)
-
-model = genai.GenerativeModel(
-    "gemini-1.5-flash"
+- Team strategy
+- Player positioning
+- Offensive play
+- Defensive play
+- Strengths
+- Weaknesses
+- Coaching recommendations
+"""
 )
 
-# ------------------------------------------
-# ANALYSIS TYPES
-# ------------------------------------------
+# --------------------------------------------------
+# GEMINI SETUP
+# --------------------------------------------------
+
+try:
+    api_key = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    api_key = os.getenv("GEMINI_API_KEY")
+
+if not api_key:
+    st.error("GEMINI_API_KEY not found.")
+    st.stop()
+
+try:
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+except Exception as e:
+    st.error(f"Gemini initialization failed: {e}")
+    st.stop()
+
+# --------------------------------------------------
+# ANALYSIS OPTIONS
+# --------------------------------------------------
 
 analysis_options = {
-    "Complete Analysis":
-    """
-    Analyze this hockey play.
+    "Complete Analysis": """
+Analyze this hockey video.
 
-    Include:
+Provide:
 
-    - Play summary
-    - Team strategy
-    - Offensive positioning
-    - Defensive positioning
-    - Key strengths
-    - Areas for improvement
-    - Coaching recommendations
-    """,
+1. Play Summary
+2. Team Strategy
+3. Offensive Analysis
+4. Defensive Analysis
+5. Player Positioning
+6. Strengths
+7. Weaknesses
+8. Coaching Recommendations
+""",
+    "Player Positioning": """
+Analyze player positioning.
 
-    "Coach Report":
-    """
-    Produce a detailed coaching report.
+Include:
+- Offensive positioning
+- Defensive positioning
+- Support structure
+- Spacing
+- Errors
+""",
+    "Coach Report": """
+Create a coaching report.
 
-    Include:
+Include:
+- Positive observations
+- Areas to improve
+- Tactical adjustments
+- Practice recommendations
+""",
+    "Offensive Analysis": """
+Analyze offensive execution.
 
-    - Positive habits
-    - Tactical mistakes
-    - Team systems
-    - Skill development recommendations
-    """,
+Include:
+- Puck support
+- Passing options
+- Shot selection
+- Zone entries
+""",
+    "Defensive Analysis": """
+Analyze defensive execution.
 
-    "Player Positioning":
-    """
-    Analyze positioning.
-
-    Include:
-
-    - Spacing
-    - Support
-    - Defensive coverage
-    - Offensive support
-    """
+Include:
+- Coverage
+- Gap control
+- Transition defense
+- Team support
+"""
 }
 
 analysis_type = st.sidebar.selectbox(
@@ -85,84 +117,76 @@ analysis_type = st.sidebar.selectbox(
     list(analysis_options.keys())
 )
 
-analysis_prompt = analysis_options[
-    analysis_type
-]
+prompt = analysis_options[analysis_type]
 
-# ------------------------------------------
+# --------------------------------------------------
 # YOUTUBE DOWNLOAD
-# ------------------------------------------
+# --------------------------------------------------
 
 def download_youtube(url):
 
-    temp_folder = tempfile.mkdtemp()
+    temp_dir = tempfile.mkdtemp()
 
-    output_file = os.path.join(
-        temp_folder,
+    output_template = os.path.join(
+        temp_dir,
         "%(title)s.%(ext)s"
     )
 
     ydl_opts = {
-        "format": "mp4",
-        "outtmpl": output_file,
+        "format": "bestvideo+bestaudio/best",
+        "merge_output_format": "mp4",
+        "outtmpl": output_template,
         "quiet": True,
         "noplaylist": True
     }
 
-    with yt_dlp.YoutubeDL(
-        ydl_opts
-    ) as ydl:
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 
         info = ydl.extract_info(
             url,
             download=True
         )
 
-        video_file = ydl.prepare_filename(
-            info
-        )
+        file_path = ydl.prepare_filename(info)
 
-    return video_file
+        if not file_path.endswith(".mp4"):
+            file_path = os.path.splitext(file_path)[0] + ".mp4"
 
-# ------------------------------------------
-# EXTRACT FRAMES
-# ------------------------------------------
+    return file_path
 
-def extract_frames(
-    video_path,
-    max_frames=8
-):
+# --------------------------------------------------
+# FRAME EXTRACTION
+# --------------------------------------------------
+
+def extract_frames(video_path, max_frames=8):
 
     frames = []
 
-    cap = cv2.VideoCapture(
-        video_path
+    cap = cv2.VideoCapture(video_path)
+
+    total_frames = int(
+        cap.get(cv2.CAP_PROP_FRAME_COUNT)
     )
 
-    frame_count = int(
-        cap.get(
-            cv2.CAP_PROP_FRAME_COUNT
-        )
-    )
+    if total_frames <= 0:
+        cap.release()
+        return []
 
-    if frame_count == 0:
-        return frames
-
-    step = max(
-        frame_count // max_frames,
+    step_size = max(
+        total_frames // max_frames,
         1
     )
 
-    count = 0
+    frame_num = 0
 
     while True:
 
-        ret, frame = cap.read()
+        success, frame = cap.read()
 
-        if not ret:
+        if not success:
             break
 
-        if count % step == 0:
+        if frame_num % step_size == 0:
 
             rgb = cv2.cvtColor(
                 frame,
@@ -173,7 +197,7 @@ def extract_frames(
                 Image.fromarray(rgb)
             )
 
-        count += 1
+        frame_num += 1
 
         if len(frames) >= max_frames:
             break
@@ -182,73 +206,69 @@ def extract_frames(
 
     return frames
 
-# ------------------------------------------
-# INPUT
-# ------------------------------------------
+# --------------------------------------------------
+# INPUT TABS
+# --------------------------------------------------
 
 tab1, tab2 = st.tabs(
-    [
-        "Upload Video",
-        "YouTube Video"
-    ]
+    ["📹 Upload Video", "🔗 YouTube"]
 )
 
-video_file_path = None
+video_path = None
+youtube_url = ""
+
+# --------------------------------------------------
+# UPLOAD
+# --------------------------------------------------
 
 with tab1:
 
     uploaded_video = st.file_uploader(
-        "Upload Hockey Clip",
-        type=[
-            "mp4",
-            "mov",
-            "avi",
-            "mkv"
-        ]
+        "Upload Hockey Video",
+        type=["mp4", "mov", "avi", "mkv"]
     )
 
     if uploaded_video:
 
-        st.video(
-            uploaded_video
-        )
+        st.video(uploaded_video)
 
         with tempfile.NamedTemporaryFile(
             delete=False,
             suffix=".mp4"
-        ) as temp_file:
+        ) as temp_video:
 
-            temp_file.write(
+            temp_video.write(
                 uploaded_video.read()
             )
 
-            video_file_path = (
-                temp_file.name
-            )
+            video_path = temp_video.name
+
+# --------------------------------------------------
+# YOUTUBE
+# --------------------------------------------------
 
 with tab2:
 
     youtube_url = st.text_input(
-        "Paste YouTube URL"
+        "Paste a YouTube URL"
     )
 
     if youtube_url:
+        st.video(youtube_url)
 
-        st.video(
-            youtube_url
-        )
-
-# ------------------------------------------
-# ANALYZE BUTTON
-# ------------------------------------------
+# --------------------------------------------------
+# ANALYSIS
+# --------------------------------------------------
 
 if st.button(
-    "🏒 Analyze Hockey Video"
+    "🏒 Analyze Hockey Video",
+    use_container_width=True,
+    type="primary"
 ):
 
     try:
 
-        if not video_file_path:
+        if video_path is None:
 
             if youtube_url:
 
@@ -256,33 +276,31 @@ if st.button(
                     "Downloading YouTube video..."
                 ):
 
-                    video_file_path = (
-                        download_youtube(
-                            youtube_url
-                        )
+                    video_path = download_youtube(
+                        youtube_url
                     )
 
             else:
 
                 st.warning(
-                    "Upload a video or provide a YouTube URL."
+                    "Please upload a video or paste a YouTube URL."
                 )
 
                 st.stop()
 
         with st.spinner(
-            "Extracting frames..."
+            "Extracting video frames..."
         ):
 
             frames = extract_frames(
-                video_file_path,
+                video_path,
                 max_frames=8
             )
 
         if len(frames) == 0:
 
             st.error(
-                "No frames extracted."
+                "Unable to extract frames from the video."
             )
 
             st.stop()
@@ -291,28 +309,21 @@ if st.button(
             "Analyzing hockey footage..."
         ):
 
-            content = [
-                analysis_prompt
-            ]
+            content = [prompt]
 
             for frame in frames:
+                content.append(frame)
 
-                content.append(
-                    frame
-                )
-
-            response = (
-                model.generate_content(
-                    content
-                )
+            response = model.generate_content(
+                content
             )
 
         st.success(
-            "Analysis Complete"
+            "Analysis Complete ✅"
         )
 
         st.subheader(
-            "🏒 Hockey Report"
+            "🏒 Hockey Analysis"
         )
 
         st.markdown(
@@ -323,12 +334,12 @@ if st.button(
 
         st.exception(e)
 
-# ------------------------------------------
+# --------------------------------------------------
 # FOOTER
-# ------------------------------------------
+# --------------------------------------------------
 
 st.divider()
 
 st.caption(
-    "Powered by Gemini Vision"
+    "Powered by Google Gemini Vision"
 )
