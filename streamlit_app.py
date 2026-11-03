@@ -4,7 +4,7 @@ import yt_dlp
 
 st.title("🏒 AI Hockey Analyzer")
 
-# Create selection for input type
+# Selection for input type
 input_type = st.radio(
     "Select Video Input:", ["Upload Video", "YouTube Video"], horizontal=True
 )
@@ -19,25 +19,41 @@ if input_type == "YouTube Video":
         if youtube_url.strip():
             st.info("Downloading YouTube video...")
 
-            # Options to select the best available format automatically
+            output_file = "downloaded_video.mp4"
+
+            # Clean up old file if it exists
+            if os.path.exists(output_file):
+                os.remove(output_file)
+
+            # Robust yt-dlp configuration for regular, shorts, and live videos
             ydl_opts = {
-                "format": "best",
-                "outtmpl": "downloaded_video.mp4",
+                # Try best single MP4 stream, fall back to any best format
+                "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
+                "format_sort": ["res", "ext:mp4:m4a"],
+                "outtmpl": output_file,
                 "overwrites": True,
                 "quiet": True,
+                "no_warnings": True,
+                # Avoid YouTube bot/format blocks
+                "user_agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
             }
 
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([youtube_url])
+                    ydl.download([youtube_url.strip()])
 
-                st.success("Video downloaded successfully!")
+                if os.path.exists(output_file):
+                    st.success("Video downloaded successfully!")
+                    st.video(output_file)
 
-                # Display downloaded video
-                st.video("downloaded_video.mp4")
-
-                # --- Put your AI video analysis model call here ---
-                # analyze_video("downloaded_video.mp4")
+                    # --- Insert your AI video processing call here ---
+                    # analyze_video(output_file)
+                else:
+                    st.error("Download failed to generate video file.")
 
             except Exception as e:
                 st.error(f"Failed to download video: {e}")
@@ -51,9 +67,9 @@ elif input_type == "Upload Video":
     if uploaded_file is not None:
         st.video(uploaded_file)
 
-        # Save temporary uploaded file for backend processing if needed
+        # Save uploaded file locally for AI model processing
         with open("uploaded_video.mp4", "wb") as f:
             f.write(uploaded_file.getbuffer())
 
-        # --- Put your AI video analysis model call here ---
+        # --- Insert your AI video processing call here ---
         # analyze_video("uploaded_video.mp4")
