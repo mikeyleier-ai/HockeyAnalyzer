@@ -1,52 +1,50 @@
 import os
-import tempfile
-
 import cv2
+import tempfile
 import streamlit as st
 import yt_dlp
-import google.generativeai as genai
 from PIL import Image
 
-# --------------------------------------------------
+from google import genai
+
+# ------------------------------------------
 # PAGE CONFIG
-# --------------------------------------------------
+# ------------------------------------------
 
 st.set_page_config(
     page_title="Hockey AI Analyzer",
     page_icon="🏒",
-    layout="wide",
+    layout="wide"
 )
 
 st.title("🏒 Hockey AI Analyzer")
 
-# --------------------------------------------------
+# ------------------------------------------
 # GEMINI
-# --------------------------------------------------
+# ------------------------------------------
 
-API_KEY = st.secrets.get(
+api_key = st.secrets.get(
     "GEMINI_API_KEY",
-    os.getenv("GEMINI_API_KEY"),
+    os.getenv("GEMINI_API_KEY")
 )
 
-if not API_KEY:
-    st.error("GEMINI_API_KEY not configured.")
+if not api_key:
+    st.error("GEMINI_API_KEY not found.")
     st.stop()
 
-genai.configure(api_key=API_KEY)
-
 try:
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    client = genai.Client(api_key=api_key)
 except Exception as e:
     st.error(f"Gemini initialization failed: {e}")
     st.stop()
 
-# --------------------------------------------------
+# ------------------------------------------
 # ANALYSIS TYPES
-# --------------------------------------------------
+# ------------------------------------------
 
 analysis_options = {
     "Complete Analysis": """
-Analyze the hockey clip and provide:
+Analyze this hockey video and provide:
 
 1. Play summary
 2. Team strategy
@@ -54,69 +52,79 @@ Analyze the hockey clip and provide:
 4. Defensive analysis
 5. Player positioning
 6. Strengths
-7. Weaknesses
+7. Areas for improvement
 8. Coaching recommendations
 """,
-    "Coach Report": """
-Create a coaching report with:
 
+    "Coach Report": """
+Create a coaching report.
+
+Include:
 - Strengths
-- Areas for improvement
+- Weaknesses
 - Tactical adjustments
 - Practice recommendations
 """,
+
     "Player Positioning": """
-Analyze player positioning and support structure.
-""",
+Analyze player positioning, support structure,
+spacing, and transition play.
+"""
 }
 
 analysis_type = st.sidebar.selectbox(
     "Analysis Type",
-    list(analysis_options.keys()),
+    list(analysis_options.keys())
 )
 
 prompt = analysis_options[analysis_type]
 
-# --------------------------------------------------
+# ------------------------------------------
 # YOUTUBE DOWNLOAD
-# --------------------------------------------------
+# ------------------------------------------
 
 def download_youtube(url):
 
     temp_dir = tempfile.mkdtemp()
 
-    ydl_opts = {
+    output_file = os.path.join(
+        temp_dir,
+        "video.%(ext)s"
+    )
+
+    options = {
         "format": "best[ext=mp4]/best",
-        "outtmpl": os.path.join(
-            temp_dir,
-            "video.%(ext)s"
-        ),
-        "quiet": True,
+        "outtmpl": output_file,
         "noplaylist": True,
+        "quiet": True
     }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    with yt_dlp.YoutubeDL(options) as ydl:
+
         info = ydl.extract_info(
             url,
-            download=True,
+            download=True
         )
 
-        file_path = ydl.prepare_filename(info)
+        path = ydl.prepare_filename(info)
 
-    return file_path
+    return path
 
-# --------------------------------------------------
+# ------------------------------------------
 # FRAME EXTRACTION
-# --------------------------------------------------
+# ------------------------------------------
 
-def extract_frames(video_path, max_frames=8):
+def extract_frames(
+    video_path,
+    max_frames=8
+):
 
     frames = []
 
     cap = cv2.VideoCapture(video_path)
 
     if not cap.isOpened():
-        return frames
+        return []
 
     total_frames = int(
         cap.get(cv2.CAP_PROP_FRAME_COUNT)
@@ -124,14 +132,14 @@ def extract_frames(video_path, max_frames=8):
 
     if total_frames <= 0:
         cap.release()
-        return frames
+        return []
 
     interval = max(
         total_frames // max_frames,
-        1,
+        1
     )
 
-    frame_count = 0
+    frame_num = 0
 
     while True:
 
@@ -140,18 +148,18 @@ def extract_frames(video_path, max_frames=8):
         if not success:
             break
 
-        if frame_count % interval == 0:
+        if frame_num % interval == 0:
 
             rgb = cv2.cvtColor(
                 frame,
-                cv2.COLOR_BGR2RGB,
+                cv2.COLOR_BGR2RGB
             )
 
             frames.append(
                 Image.fromarray(rgb)
             )
 
-        frame_count += 1
+        frame_num += 1
 
         if len(frames) >= max_frames:
             break
@@ -160,35 +168,49 @@ def extract_frames(video_path, max_frames=8):
 
     return frames
 
-# --------------------------------------------------
-# INPUT
-# --------------------------------------------------
+# ------------------------------------------
+# INPUT TABS
+# ------------------------------------------
 
 tab_upload, tab_youtube = st.tabs(
-    ["📹 Upload Video", "🔗 YouTube"]
+    [
+        "📹 Upload Video",
+        "🔗 YouTube Link"
+    ]
 )
 
 video_path = None
 youtube_url = ""
 
+# ------------------------------------------
+# FILE UPLOAD
+# ------------------------------------------
+
 with tab_upload:
 
-    uploaded_file = st.file_uploader(
+    uploaded_video = st.file_uploader(
         "Upload Hockey Video",
-        type=["mp4", "mov", "avi", "mkv"],
+        type=["mp4", "mov", "avi", "mkv"]
     )
 
-    if uploaded_file:
+    if uploaded_video:
 
-        st.video(uploaded_file)
+        st.video(uploaded_video)
 
         with tempfile.NamedTemporaryFile(
             delete=False,
-            suffix=".mp4",
-        ) as tmp:
+            suffix=".mp4"
+        ) as temp_file:
 
-            tmp.write(uploaded_file.read())
-            video_path = tmp.name
+            temp_file.write(
+                uploaded_video.read()
+            )
+
+            video_path = temp_file.name
+
+# ------------------------------------------
+# YOUTUBE INPUT
+# ------------------------------------------
 
 with tab_youtube:
 
@@ -199,13 +221,13 @@ with tab_youtube:
     if youtube_url:
         st.video(youtube_url)
 
-# --------------------------------------------------
+# ------------------------------------------
 # ANALYZE
-# --------------------------------------------------
+# ------------------------------------------
 
 if st.button(
     "🏒 Analyze Hockey Video",
-    type="primary",
+    type="primary"
 ):
 
     try:
@@ -235,7 +257,7 @@ if st.button(
             else:
 
                 st.warning(
-                    "Upload a video or provide a YouTube URL."
+                    "Upload a video or enter a YouTube URL."
                 )
 
                 st.stop()
@@ -251,30 +273,34 @@ if st.button(
         if not frames:
 
             st.error(
-                "Unable to extract frames."
+                "Unable to extract frames from video."
             )
 
             st.stop()
 
         with st.spinner(
-            "Analyzing hockey footage..."
+            "Analyzing video..."
         ):
 
             content = [prompt]
             content.extend(frames)
 
-            response = model.generate_content(
-                content
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=content
             )
 
         st.success(
             "Analysis Complete ✅"
         )
 
-        if hasattr(response, "text"):
-            st.markdown(response.text)
-        else:
-            st.write(response)
+        st.subheader(
+            "🏒 Hockey Analysis Report"
+        )
+
+        st.markdown(
+            response.text
+        )
 
     except Exception as e:
 
@@ -282,18 +308,20 @@ if st.button(
 
     finally:
 
-        if (
-            video_path
-            and os.path.exists(video_path)
-        ):
-            try:
-                os.remove(video_path)
-            except Exception:
-                pass
+        try:
 
-# --------------------------------------------------
+            if (
+                video_path
+                and os.path.exists(video_path)
+            ):
+                os.remove(video_path)
+
+        except Exception:
+            pass
+
+# ------------------------------------------
 # FOOTER
-# --------------------------------------------------
+# ------------------------------------------
 
 st.divider()
 
